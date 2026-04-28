@@ -27,11 +27,6 @@ Thumbs.db
 *.xlsx
 *.zip
 
-# Output
-plots/
-*.png
-*.jpg
-
 # Large data files only (keep folder structure)
 Data/Raw/*.csv
 Data/Clean/*.csv
