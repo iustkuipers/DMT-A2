@@ -27,5 +27,11 @@ Thumbs.db
 *.xlsx
 *.zip
 
-# CSV cache
+# Output
+plots/
+*.png
+*.jpg
+
+# Data & CSV cache
 *.csv
+Data/
