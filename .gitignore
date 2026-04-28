@@ -1,13 +1,4 @@
-# Data files (large)
-Data/Raw/*.csv
-Data/Clean/*.csv
-Data/sub sample/*.csv
 
-# Output files
-plots/
-EDA_Output/
-*.png
-*.jpg
 
 # Python
 __pycache__/
