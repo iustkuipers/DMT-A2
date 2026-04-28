@@ -32,6 +32,8 @@ plots/
 *.png
 *.jpg
 
-# Data & CSV cache
+# Large data files only (keep folder structure)
+Data/Raw/*.csv
+Data/Clean/*.csv
+Data/sub\ sample/*.csv
 *.csv
-Data/
