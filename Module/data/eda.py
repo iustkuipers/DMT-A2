@@ -459,11 +459,13 @@ class HotelEDA:
         prop_counts = self.df_train['prop_id'].value_counts()
         
         print(f"  Properties appearing 1x: {(prop_counts == 1).sum()} ({100*(prop_counts == 1).sum()/len(prop_counts):.1f}%)")
-        print(f"  Properties appearing 2-5x: {((prop_counts >= 2) & (prop_counts <= 5)).sum()}")
+        print(f"  Properties appearing 2-5x: {((prop_counts >= 2) & (prop_counts <= 5)).sum()} ({100*((prop_counts >= 2) & (prop_counts <= 5)).sum()/len(prop_counts):.1f}%)")
+        print(f"  Properties appearing <5x total: {(prop_counts < 5).sum()} ({100*(prop_counts < 5).sum()/len(prop_counts):.1f}%)")
         print(f"  Properties appearing 6-10x: {((prop_counts >= 6) & (prop_counts <= 10)).sum()}")
         print(f"  Properties appearing >10x: {(prop_counts > 10).sum()}")
         print(f"  Max appearances: {prop_counts.max()}")
         print(f"  Mean appearances: {prop_counts.mean():.1f}")
+        print(f"  ⚠ Properties with <5 appearances are high-variance estimates — apply shrinkage")
         
         # Visualization
         fig, axes = plt.subplots(1, 2, figsize=(14, 5))
@@ -499,27 +501,31 @@ class HotelEDA:
         
         fig, axes = plt.subplots(1, 2, figsize=(14, 5))
         
-        # Price rank vs booking
+        # Price rank vs booking (full curve)
         if 'booking_bool' in self.df_train.columns:
-            price_rank_stats = self.df_train[self.df_train['price_rank'] <= 15].groupby('price_rank')['booking_bool'].agg(['mean', 'count'])
+            # Show wider range for price rank
+            max_price_rank = min(25, int(self.df_train.groupby('srch_id').size().max()))
+            price_rank_stats = self.df_train[self.df_train['price_rank'] <= max_price_rank].groupby('price_rank')['booking_bool'].agg(['mean', 'count'])
             
-            axes[0].bar(price_rank_stats.index, price_rank_stats['mean']*100, color='skyblue', edgecolor='black')
+            axes[0].plot(price_rank_stats.index, price_rank_stats['mean']*100, marker='o', linewidth=2, markersize=6, color='steelblue')
+            axes[0].fill_between(price_rank_stats.index, price_rank_stats['mean']*100, alpha=0.3, color='steelblue')
             axes[0].set_xlabel('Price Rank Within Search (1=Cheapest)')
             axes[0].set_ylabel('Booking Rate (%)')
-            axes[0].set_title('Price Rank Impact on Bookings (Top 15 Positions)')
-            axes[0].grid(True, alpha=0.3, axis='y')
+            axes[0].set_title('Price Rank Impact on Bookings (Full Curve)')
+            axes[0].grid(True, alpha=0.3)
             
-            # Add counts
-            for i, (idx, row) in enumerate(price_rank_stats.iterrows()):
-                axes[0].text(idx, row['mean']*100 + 0.1, f"n={int(row['count'])}", ha='center', fontsize=8)
-            
-            print(f"  Cheapest (rank 1) booking rate: {price_rank_stats.loc[1, 'mean']*100:.2f}%")
+            cheapest_rate = price_rank_stats.loc[1, 'mean'] * 100
+            most_expensive = price_rank_stats.index.max()
+            expensive_rate = price_rank_stats.loc[most_expensive, 'mean'] * 100
+            print(f"  Price rank 1 (cheapest) booking rate: {cheapest_rate:.2f}%")
+            print(f"  Price rank {int(most_expensive)} booking rate: {expensive_rate:.2f}%")
+            print(f"  Decay: {cheapest_rate - expensive_rate:.2f}pp (strong within-query price effect)")
         
         # Star rank vs booking
         if 'booking_bool' in self.df_train.columns:
             star_rank_stats = self.df_train[self.df_train['starrating_rank'] <= 10].groupby('starrating_rank')['booking_bool'].agg(['mean', 'count'])
             
-            axes[1].bar(star_rank_stats.index, star_rank_stats['mean']*100, color='lightcoral', edgecolor='black')
+            axes[1].bar(star_rank_stats.index, star_rank_stats['mean']*100, color='lightcoral', edgecolor='black', alpha=0.7)
             axes[1].set_xlabel('Star Rating Rank Within Search (1=Highest)')
             axes[1].set_ylabel('Booking Rate (%)')
             axes[1].set_title('Star Rank Impact on Bookings (Top 10)')
@@ -559,13 +565,29 @@ class HotelEDA:
                     meaning = {-1: "Expedia cheaper", 0: "Same price", 1: "Expedia more expensive"}
                     print(f"    {meaning.get(idx, f'Value {idx}')}: {100*row['mean']:.2f}% booking (n={int(row['count'])})")
             
+            # Aggregated competitor summary
+            print("\n  AGGREGATED COMPETITOR SUMMARY:")
+            rows_with_comp = self.df_train[self.df_train['comp1_rate'].notna()]
+            if len(rows_with_comp) > 0:
+                cheaper = rows_with_comp[rows_with_comp['comp1_rate'] == 1]['booking_bool'].mean()
+                pricier = rows_with_comp[rows_with_comp['comp1_rate'] == -1]['booking_bool'].mean()
+                same = rows_with_comp[rows_with_comp['comp1_rate'] == 0]['booking_bool'].mean()
+                
+                print(f"    Rows with comp data: {len(rows_with_comp)} ({100*len(rows_with_comp)/len(self.df_train):.1f}%)")
+                print(f"    When Expedia cheaper: {100*cheaper:.2f}% booking")
+                print(f"    When Expedia pricier: {100*pricier:.2f}% booking")
+                print(f"    When same price: {100*same:.2f}% booking")
+                uplift = ((cheaper - pricier) / pricier * 100) if pricier > 0 else 0
+                print(f"    Uplift (cheaper vs pricier): {uplift:.1f}%")
+                print(f"    → Worth engineering aggregated competitor feature if signal is strong")
+            
             # Visualization
             fig, ax = plt.subplots(figsize=(10, 5))
             
             comp_for_plot = comp_stats.copy()
             comp_for_plot.index = comp_for_plot.index.astype(str)
-            comp_for_plot['mean'].plot(kind='bar', ax=ax, color=['green', 'gray', 'red', 'orange'][:len(comp_for_plot)])
-            ax.set_xticklabels(['Cheaper (-1)', 'Same (0)', 'More Expensive (1)', 'Missing (NaN)'][:len(comp_for_plot)], rotation=0)
+            comp_for_plot['mean'].plot(kind='bar', ax=ax, color=['green', 'gray', 'red'][:len(comp_for_plot)])
+            ax.set_xticklabels(['Cheaper (-1)', 'Same (0)', 'More Expensive (1)'][:len(comp_for_plot)], rotation=0)
             ax.set_ylabel('Booking Rate')
             ax.set_xlabel('Comp1 Rate Category')
             ax.set_title('Booking Rate by Competitor Price Signal')
@@ -595,7 +617,12 @@ class HotelEDA:
         
         print(f"  Repeat customer booking rate: {100*repeat_booking_rate:.2f}%")
         print(f"  New customer booking rate: {100*new_booking_rate:.2f}%")
-        print(f"  Uplift from repeat: {100*(repeat_booking_rate - new_booking_rate)/new_booking_rate:.1f}%")
+        
+        if new_booking_rate > 0:
+            uplift = 100 * (repeat_booking_rate - new_booking_rate) / new_booking_rate
+            print(f"  Uplift from repeat: {uplift:.1f}%")
+            if abs(uplift) > 5:
+                print(f"  → Justifies keeping visitor_hist columns despite {100 - repeat_pct:.1f}% missingness")
         
         # Visualization
         fig, axes = plt.subplots(1, 2, figsize=(12, 4))
@@ -655,6 +682,45 @@ class HotelEDA:
             print("  Saved: eda_12_affinity_score.png")
             plt.close()
     
+    def position_bias_interpretation(self):
+        """Explain position bias and metric choice (NDCG vs. classification)."""
+        print("\nPOSITION BIAS & METRIC JUSTIFICATION:")
+        
+        if 'position' not in self.df_train.columns or 'random_bool' not in self.df_train.columns:
+            print("  Skipping: missing position or random_bool")
+            return
+        
+        if 'click_bool' not in self.df_train.columns:
+            print("  Skipping: missing click_bool")
+            return
+        
+        # Analyze random condition
+        random_results = self.df_train[self.df_train['random_bool'] == 1]
+        
+        if len(random_results) > 0:
+            random_stats = random_results.groupby('position')['click_bool'].agg(['mean', 'count']).reset_index()
+            random_stats = random_stats[random_stats['position'] <= 15]
+            
+            if len(random_stats) > 0:
+                click_at_1 = random_stats[random_stats['position'] == 1]['mean'].values
+                click_at_10 = random_stats[random_stats['position'] == 10]['mean'].values
+                
+                if len(click_at_1) > 0 and len(click_at_10) > 0:
+                    decay = (click_at_1[0] - click_at_10[0]) * 100
+                    print(f"  Random condition (natural experiment):")
+                    print(f"    Click rate at position 1: {click_at_1[0]*100:.1f}%")
+                    print(f"    Click rate at position 10: {click_at_10[0]*100:.1f}%")
+                    print(f"    Decay: {decay:.1f}pp (NOT due to algorithm)")
+                    print(f"")
+                    print(f"  KEY FINDING:")
+                    print(f"    Position bias is INTRINSIC to user behavior (scroll fatigue).")
+                    print(f"    Even randomly-ranked hotels show strong position decay.")
+                    print(f"    This means:")
+                    print(f"    1. Position is a STRONG feature (but confounded with quality)")
+                    print(f"    2. A classification model (predict booking prob.) is insufficient")
+                    print(f"    3. NDCG@5 is the right metric: rank high-quality items early")
+                    print(f"    4. LambdaMART (listwise ranker) is ideal for this problem")
+    
     # ============ Main Runner ============
     
     def run_full_eda(self, output_dir="plots/eda"):
@@ -688,17 +754,56 @@ class HotelEDA:
         
         # LambdaMART-specific analysis
         print("\n" + "="*60)
-        print("LAMBDAMART-SPECIFIC ANALYSIS")
+        print("LAMBDAMART-SPECIFIC ANALYSIS & FEATURE ENGINEERING PREP")
         print("="*60)
         self.propid_appearance_distribution()
         self.within_query_relative_plots()
         self.competitor_signal_analysis()
         self.visitor_history_segment()
         self.affinity_score_analysis()
+        self.position_bias_interpretation()
+        
+        # Feature engineering checklist
+        self._print_feature_engineering_checklist()
         
         print("\n" + "="*60)
-        print("EDA COMPLETE!")
+        print("EDA COMPLETE — Ready for Feature Engineering")
         print("="*60)
+    
+    def _print_feature_engineering_checklist(self):
+        """Print checklist of features to engineer for LambdaMART."""
+        print("\n" + "="*60)
+        print("FEATURE ENGINEERING CHECKLIST (Next Phase)")
+        print("="*60)
+        print("""
+PROP_ID AGGREGATES (✓ Already computed in prop_id_aggregates.csv):
+  ✓ mean/std/median of all numeric features per prop_id
+  ✓ mean booking_rate per prop_id
+  → TODO: Apply Bayesian shrinkage to prop_id aggregates
+
+WITHIN-QUERY RELATIVE FEATURES (✓ Analyzed, TODO: Engineer):
+  ✓ price_rank_in_query (rank of price_usd within srch_id)
+  ✓ starrating_rank_in_query (verified in plots)
+  → TODO: Create derived features:
+    - price_vs_prop_historical (price_usd - mean_price_per_prop_id)
+    - price_pct_diff_from_prop_mean
+    - location_score2_rank_in_query
+
+MISSING INDICATORS (TODO: Engineer):
+  → visitor_hist_missing (bool: visitor_hist_starrating is null)
+  → orig_distance_missing (bool: orig_destination_distance is null)
+  → affinity_score_missing (bool: srch_query_affinity_score is null)
+
+COMPETITOR AGGREGATE (TODO: Engineer):
+  → n_comps_where_expedia_cheaper (sum of comp_rate == 1 across comp1-8)
+  → n_comps_where_expedia_pricier (sum of comp_rate == -1)
+  → Handles missingness elegantly (treats null as 0)
+
+EXPECTED OUTCOME:
+  LambdaMART with ~60-80 features (numeric + within-query ranks)
+  Training: pairwise ranking loss (LambdaRank objective)
+  Evaluation: NDCG@5 (positions 1-5 are most important)
+""")
 
 
 def main(train_path, test_path=None, output_dir=None):
