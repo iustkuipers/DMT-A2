@@ -1,0 +1,40 @@
+# Data files (large)
+Data/Raw/*.csv
+Data/Clean/*.csv
+Data/sub sample/*.csv
+
+# Output files
+plots/
+EDA_Output/
+*.png
+*.jpg
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.coverage
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.xlsx
+*.zip
+
+# CSV cache
+*.csv
